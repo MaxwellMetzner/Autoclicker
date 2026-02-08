@@ -45,9 +45,9 @@ class AutoClicker:
     def __init__(self, master):
         self.master = master
         self.master.title("AutoClicker")
-        self.master.geometry("320x330")
         self.master.configure(bg=COLORS["bg"])
         self.master.resizable(False, False)
+        self.master.attributes("-topmost", True)
 
         self.clicking = False
         self.stop_event = Event()
@@ -62,43 +62,103 @@ class AutoClicker:
         self._setup_styles()
 
         # Create main container
-        main_frame = tk.Frame(master, bg=COLORS["bg"])
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        main = tk.Frame(master, bg=COLORS["bg"])
+        main.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
 
-        # Click type section
-        self._create_click_type_section(main_frame)
+        # Row 1: Click type + Interval side by side
+        row1 = tk.Frame(main, bg=COLORS["bg"])
+        row1.pack(fill=tk.X, pady=(0, 6))
+        row1.columnconfigure(0, weight=1)
+        row1.columnconfigure(1, weight=1)
 
-        # Interval section
-        self._create_interval_section(main_frame)
+        # Click type (left half)
+        type_frame = tk.Frame(row1, bg=COLORS["bg"])
+        type_frame.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        tk.Label(type_frame, text="Type", bg=COLORS["bg"], fg=COLORS["inactive"],
+                font=("Segoe UI", 8)).pack(anchor="w")
+        self.click_type_var = tk.StringVar(value="Left")
+        self.click_type_combo = ttk.Combobox(type_frame, textvariable=self.click_type_var,
+                                            values=["Left", "Right", "Middle"],
+                                            state="readonly", font=("Segoe UI", 9),
+                                            width=8, justify="center")
+        self.click_type_combo.pack(fill=tk.X, ipady=1)
+        self.click_type_combo.bind("<<ComboboxSelected>>", self._on_click_type_change)
 
-        # Hotkey section
-        self._create_hotkey_section(main_frame)
+        # Interval (right half)
+        int_frame = tk.Frame(row1, bg=COLORS["bg"])
+        int_frame.grid(row=0, column=1, sticky="ew", padx=(3, 0))
+        tk.Label(int_frame, text="Interval (s)", bg=COLORS["bg"], fg=COLORS["inactive"],
+                font=("Segoe UI", 8)).pack(anchor="w")
+        self.interval_entry = tk.Entry(int_frame, font=("Segoe UI", 9), width=8,
+                                       bg=COLORS["card_bg"], fg=COLORS["fg"], relief=tk.FLAT,
+                                       bd=0, justify="center", insertbackground=COLORS["fg"])
+        self.interval_entry.insert(0, "0.01")
+        self.interval_entry.pack(fill=tk.X, ipady=3)
 
-        # Control buttons section
-        self._create_control_section(main_frame)
+        # Row 2: Hotkey inline
+        row2 = tk.Frame(main, bg=COLORS["bg"])
+        row2.pack(fill=tk.X, pady=(0, 6))
 
-        # Status section
-        self._create_status_section(main_frame)
+        self.hotkey_label_text = tk.StringVar(value="Not Set")
+        tk.Label(row2, text="Hotkey:", bg=COLORS["bg"], fg=COLORS["inactive"],
+                font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        self.hotkey_label = tk.Label(row2, textvariable=self.hotkey_label_text,
+                                     bg=COLORS["bg"], fg=COLORS["accent"],
+                                     font=("Segoe UI", 8, "bold"))
+        self.hotkey_label.pack(side=tk.LEFT, padx=(2, 0))
+
+        self.set_hotkey_btn = tk.Button(row2, text="Set", command=self.set_hotkey,
+                                       font=("Segoe UI", 8), bg=COLORS["card_bg"],
+                                       fg=COLORS["fg"], relief=tk.FLAT, bd=0, padx=8, pady=1,
+                                       cursor="hand2", activebackground=COLORS["inactive"],
+                                       activeforeground=COLORS["fg"])
+        self.set_hotkey_btn.pack(side=tk.RIGHT)
+
+        # Row 3: Start / Stop buttons
+        row3 = tk.Frame(main, bg=COLORS["bg"])
+        row3.pack(fill=tk.X, pady=(0, 4))
+
+        self.start_btn = tk.Button(row3, text="\u25B6 Start", command=self.start_clicking,
+                                  font=("Segoe UI", 9, "bold"), bg=COLORS["success"],
+                                  fg="white", relief=tk.FLAT, bd=0, pady=5,
+                                  cursor="hand2", activebackground="#3db896",
+                                  activeforeground="white")
+        self.start_btn.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 2))
+
+        self.stop_btn = tk.Button(row3, text="\u25A0 Stop", command=self.stop_clicking,
+                                 font=("Segoe UI", 9, "bold"), bg=COLORS["error"],
+                                 fg="white", relief=tk.FLAT, bd=0, pady=5,
+                                 cursor="hand2", activebackground="#d97060",
+                                 activeforeground="white", state=tk.DISABLED)
+        self.stop_btn.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(2, 0))
+
+        # Row 4: Status bar
+        self.status_label = tk.Label(main, text="Ready", font=("Segoe UI", 8),
+                                    fg=COLORS["inactive"], bg=COLORS["bg"], anchor="w")
+        self.status_label.pack(fill=tk.X)
+
+        # Fit window to content with comfortable width
+        self.master.update_idletasks()
+        self.master.geometry("")
+        self.master.minsize(280, 0)
 
         # Start the hotkey listener thread
         self.listener_thread = Thread(target=self.hotkey_listener, daemon=True)
         self.listener_thread.start()
-        
+
         logger.info("AutoClicker initialized")
 
     def _setup_styles(self):
         style = ttk.Style()
         style.theme_use('clam')
-        
-        # Configure colors
+
         style.configure("TFrame", background=COLORS["bg"])
         style.configure("TLabel", background=COLORS["bg"], foreground=COLORS["fg"])
         style.configure("TButton", background=COLORS["accent"], foreground=COLORS["fg"])
-        style.map("TButton", 
+        style.map("TButton",
                   background=[("active", COLORS["accent_hover"]), ("pressed", COLORS["accent_hover"])])
-        
-        # Configure Combobox
-        style.configure("TCombobox", 
+
+        style.configure("TCombobox",
                        fieldbackground=COLORS["card_bg"],
                        background=COLORS["card_bg"],
                        foreground=COLORS["fg"],
@@ -110,101 +170,11 @@ class AutoClicker:
                  selectbackground=[("readonly", COLORS["card_bg"])],
                  selectforeground=[("readonly", COLORS["fg"])])
 
-    def _create_click_type_section(self, parent):
-        section = tk.Frame(parent, bg=COLORS["bg"])
-        section.pack(fill=tk.X, pady=(0, 16))
-        
-        tk.Label(section, text="Click Type", bg=COLORS["bg"], fg=COLORS["fg"], 
-                font=("Segoe UI", 10)).pack(pady=(0, 6))
-        
-        self.click_type_var = tk.StringVar(value="Left Click")
-        self.click_type_combo = ttk.Combobox(section, textvariable=self.click_type_var,
-                                            values=["Left Click", "Right Click", "Middle Click"],
-                                            state="readonly", font=("Segoe UI", 11),
-                                            width=15, justify="center")
-        self.click_type_combo.pack()
-        self.click_type_combo.bind("<<ComboboxSelected>>", self._on_click_type_change)
-
     def _on_click_type_change(self, event=None):
         selection = self.click_type_var.get()
-        if selection == "Left Click":
-            self.click_type = "left"
-        elif selection == "Right Click":
-            self.click_type = "right"
-        elif selection == "Middle Click":
-            self.click_type = "middle"
+        type_map = {"Left": "left", "Right": "right", "Middle": "middle"}
+        self.click_type = type_map.get(selection, "left")
         logger.info(f"Click type changed to: {self.click_type}")
-
-    def _create_interval_section(self, parent):
-        section = tk.Frame(parent, bg=COLORS["bg"])
-        section.pack(fill=tk.X, pady=(0, 16))
-        
-        # Input frame
-        input_frame = tk.Frame(section, bg=COLORS["bg"])
-        input_frame.pack()
-        
-        tk.Label(input_frame, text="Interval (seconds)", bg=COLORS["bg"], fg=COLORS["fg"], 
-                font=("Segoe UI", 10)).pack(pady=(0, 6))
-        
-        self.interval_entry = tk.Entry(input_frame, font=("Segoe UI", 14), width=10,
-                                       bg=COLORS["card_bg"], fg=COLORS["fg"], relief=tk.FLAT, 
-                                       bd=0, justify="center", insertbackground=COLORS["fg"])
-        self.interval_entry.insert(0, "0.01")
-        self.interval_entry.pack(ipady=6)
-
-    def _create_hotkey_section(self, parent):
-        section = tk.Frame(parent, bg=COLORS["bg"])
-        section.pack(fill=tk.X, pady=(0, 16))
-        
-        # Hotkey display
-        display_frame = tk.Frame(section, bg=COLORS["bg"])
-        display_frame.pack()
-        
-        tk.Label(display_frame, text="Hotkey (toggle): ", bg=COLORS["bg"], 
-                fg=COLORS["inactive"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        
-        self.hotkey_label_text = tk.StringVar(value="Not Set")
-        self.hotkey_label = tk.Label(display_frame, textvariable=self.hotkey_label_text, 
-                                     bg=COLORS["bg"], fg=COLORS["accent"], font=("Segoe UI", 9, "bold"))
-        self.hotkey_label.pack(side=tk.LEFT)
-        
-        # Button
-        self.set_hotkey_btn = tk.Button(section, text="Set Hotkey", command=self.set_hotkey,
-                                       font=("Segoe UI", 9), bg=COLORS["card_bg"], 
-                                       fg=COLORS["fg"], relief=tk.FLAT, bd=0, padx=16, pady=6,
-                                       cursor="hand2", activebackground=COLORS["inactive"],
-                                       activeforeground=COLORS["fg"])
-        self.set_hotkey_btn.pack(pady=(6, 0))
-
-    def _create_control_section(self, parent):
-        section = tk.Frame(parent, bg=COLORS["bg"])
-        section.pack(fill=tk.X, pady=(0, 16))
-        
-        # Start/Stop buttons side by side
-        button_frame = tk.Frame(section, bg=COLORS["bg"])
-        button_frame.pack(fill=tk.X)
-        
-        self.start_btn = tk.Button(button_frame, text="Start", command=self.start_clicking,
-                                  font=("Segoe UI", 10), bg=COLORS["success"], 
-                                  fg="white", relief=tk.FLAT, bd=0, padx=20, pady=10,
-                                  cursor="hand2", activebackground="#3db896",
-                                  activeforeground="white")
-        self.start_btn.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
-        
-        self.stop_btn = tk.Button(button_frame, text="Stop", command=self.stop_clicking,
-                                 font=("Segoe UI", 10), bg=COLORS["error"], 
-                                 fg="white", relief=tk.FLAT, bd=0, padx=20, pady=10,
-                                 cursor="hand2", activebackground="#d97060",
-                                 activeforeground="white", state=tk.DISABLED)
-        self.stop_btn.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(4, 0))
-
-    def _create_status_section(self, parent):
-        section = tk.Frame(parent, bg=COLORS["bg"])
-        section.pack(fill=tk.X)
-        
-        self.status_label = tk.Label(section, text="Ready", font=("Segoe UI", 9), 
-                                    fg=COLORS["inactive"], bg=COLORS["bg"])
-        self.status_label.pack()
 
     def set_hotkey(self):
         self.status_label.config(text="Press any key...", fg=COLORS["warning"])
