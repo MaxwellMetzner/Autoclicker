@@ -7,7 +7,6 @@ import time
 import logging
 from typing import Optional
 import sys
-import os
 
 # Debug mode configuration - set to False to hide console
 DEBUG_MODE = False
