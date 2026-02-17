@@ -16,17 +16,16 @@ A lightweight, always-on-top autoclicker with a compact dark UI. Supports left, 
    cd Autoclicker
    ```
 
-2. **Install dependencies:**
+2. **Run the app:**
 
    ```bash
-   pip install -r requirements.txt
+   pythonw autoclicker.pyw
    ```
 
-   This installs:
-   - `pyautogui` — programmatic mouse clicking
-   - `keyboard` — global hotkey detection
+No external packages are required.
+The app uses native Windows APIs via Python's built-in `ctypes` module for mouse clicks and global hotkey polling.
 
-   > `tkinter` is included with Python by default and does not need to be installed separately.
+> `tkinter` is included with most standard Python installers on Windows and does not need separate installation.
 
 ## Usage
 
@@ -41,7 +40,7 @@ Or double-click `autoclicker.pyw` in your file explorer.
 ### Controls
 
 | Control | Description |
-|---|---|
+| --- | --- |
 | **Type** | Choose Left, Right, or Middle click |
 | **Interval (s)** | Seconds between clicks (0.01 – 60) |
 | **Set Hotkey** | Press any key to assign a global toggle hotkey |
@@ -51,7 +50,7 @@ Or double-click `autoclicker.pyw` in your file explorer.
 ### Tips
 
 - The window stays on top of other windows so you can always see the status.
-- Move your mouse to a screen corner to trigger the PyAutoGUI fail-safe and emergency-stop clicking.
+- Move your mouse to any screen corner to trigger the built-in fail-safe and emergency-stop clicking.
 - The hotkey works globally — you can toggle clicking even when the window is not focused.
 
 ## License

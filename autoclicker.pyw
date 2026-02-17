@@ -1,19 +1,26 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 from threading import Thread, Event, Lock
-import pyautogui
-import keyboard
 import time
 import logging
 from typing import Optional
 import sys
+import ctypes
+from ctypes import wintypes
 
 # Debug mode configuration - set to False to hide console
 DEBUG_MODE = False
 
+# Windows API constants
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP = 0x0040
+
 # Hide console window in production mode (Windows only)
 if not DEBUG_MODE and sys.platform == 'win32':
-    import ctypes
     ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
 # Configure logging
@@ -22,10 +29,6 @@ if DEBUG_MODE:
 else:
     logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# Disable PyAutoGUI fail-safe by default (user can still move mouse to corner to stop)
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.01  # Add small delay between commands
 
 # Color scheme
 COLORS = {
@@ -56,6 +59,11 @@ class AutoClicker:
         self.clicks_performed = 0
         self.session_start_time: Optional[float] = None
         self.click_type = "left"  # left, right, or middle
+        self.shutdown_event = Event()
+        self.hotkey_vk: Optional[int] = None
+        self.hotkey_pressed_last = False
+        self.hotkey_capture_active = False
+        self.user32 = ctypes.windll.user32
 
         # Configure style
         self._setup_styles()
@@ -140,6 +148,7 @@ class AutoClicker:
         self.master.update_idletasks()
         self.master.geometry("")
         self.master.minsize(280, 0)
+        self.master.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Start the hotkey listener thread
         self.listener_thread = Thread(target=self.hotkey_listener, daemon=True)
@@ -176,36 +185,76 @@ class AutoClicker:
         logger.info(f"Click type changed to: {self.click_type}")
 
     def set_hotkey(self):
+        if self.hotkey_capture_active:
+            return
+
+        self.hotkey_capture_active = True
         self.status_label.config(text="Press any key...", fg=COLORS["warning"])
         self.master.update()
         self.master.focus_force()
-        
-        try:
-            keyboard.unhook_all()
-        except Exception as e:
-            logger.warning(f"Error unhooking: {e}")
+        self.master.bind("<KeyPress>", self._capture_hotkey)
 
-        def on_key(event):
-            try:
-                self.hotkey = event.name
-                if self.hotkey:
-                    self.hotkey_label_text.set(self.hotkey.upper())
-                    self.status_label.config(text=f"Hotkey set: {self.hotkey.upper()}", fg=COLORS["success"])
-                    keyboard.unhook_all()
-                    keyboard.add_hotkey(self.hotkey, self.toggle_clicking)
-                    logger.info(f"Hotkey set to: {self.hotkey}")
-                else:
-                    raise ValueError("Invalid hotkey")
-            except Exception as e:
-                logger.error(f"Error setting hotkey: {e}")
-                self.status_label.config(text=f"Error: {e}", fg=COLORS["error"])
-                keyboard.unhook_all()
-
+    def _capture_hotkey(self, event):
         try:
-            Thread(target=lambda: keyboard.hook(on_key), daemon=True).start()
+            if not self.hotkey_capture_active:
+                return
+
+            vk_code, display_name = self._event_to_vk(event)
+            if vk_code is None or display_name is None:
+                self.status_label.config(text="Unsupported key, try another", fg=COLORS["error"])
+                return
+
+            self.hotkey = display_name
+            self.hotkey_vk = vk_code
+            self.hotkey_pressed_last = False
+            self.hotkey_label_text.set(display_name.upper())
+            self.status_label.config(text=f"Hotkey set: {display_name.upper()}", fg=COLORS["success"])
+            logger.info(f"Hotkey set to: {display_name} (VK={vk_code})")
         except Exception as e:
-            logger.error(f"Error starting hotkey listener: {e}")
+            logger.error(f"Error setting hotkey: {e}")
+            self.status_label.config(text=f"Error: {e}", fg=COLORS["error"])
             messagebox.showerror("Error", f"Failed to set hotkey: {e}")
+        finally:
+            self.hotkey_capture_active = False
+            self.master.unbind("<KeyPress>")
+
+    def _event_to_vk(self, event):
+        keysym = (event.keysym or "").strip()
+        if not keysym:
+            return None, None
+
+        if len(keysym) == 1:
+            key = keysym.upper()
+            if "A" <= key <= "Z" or "0" <= key <= "9":
+                return ord(key), key
+
+        named_keys = {
+            "space": (0x20, "Space"),
+            "Tab": (0x09, "Tab"),
+            "Return": (0x0D, "Enter"),
+            "Escape": (0x1B, "Esc"),
+            "BackSpace": (0x08, "Backspace"),
+            "Up": (0x26, "Up"),
+            "Down": (0x28, "Down"),
+            "Left": (0x25, "Left"),
+            "Right": (0x27, "Right"),
+            "Insert": (0x2D, "Insert"),
+            "Delete": (0x2E, "Delete"),
+            "Home": (0x24, "Home"),
+            "End": (0x23, "End"),
+            "Prior": (0x21, "PageUp"),
+            "Next": (0x22, "PageDown"),
+        }
+
+        if keysym in named_keys:
+            return named_keys[keysym]
+
+        if keysym.startswith("F") and keysym[1:].isdigit():
+            fn_number = int(keysym[1:])
+            if 1 <= fn_number <= 24:
+                return 0x6F + fn_number, f"F{fn_number}"
+
+        return None, None
 
     def toggle_clicking(self):
         try:
@@ -273,22 +322,18 @@ class AutoClicker:
         try:
             while not self.stop_event.is_set():
                 try:
-                    if self.click_type == "left":
-                        pyautogui.click()
-                    elif self.click_type == "right":
-                        pyautogui.rightClick()
-                    elif self.click_type == "middle":
-                        pyautogui.middleClick()
+                    if self._is_cursor_in_corner():
+                        logger.warning("FailSafe triggered - mouse at corner")
+                        self.master.after(0, self.stop_clicking)
+                        self.master.after(0, lambda: self.status_label.config(text="Emergency stop", fg=COLORS["error"]))
+                        break
+
+                    self._native_click(self.click_type)
                     self.clicks_performed += 1
                     time.sleep(interval)
-                except pyautogui.FailSafeException:
-                    logger.warning("FailSafe triggered - mouse at corner")
-                    self.stop_clicking()
-                    self.status_label.config(text="Emergency stop", fg=COLORS["error"])
-                    break
                 except Exception as e:
                     logger.error(f"Error during click: {e}")
-                    self.stop_clicking()
+                    self.master.after(0, self.stop_clicking)
                     break
             
             logger.info(f"Click loop ended. Total clicks: {self.clicks_performed}")
@@ -301,10 +346,60 @@ class AutoClicker:
 
     def hotkey_listener(self):
         try:
-            while True:
-                time.sleep(1)
+            while not self.shutdown_event.is_set():
+                try:
+                    if self.hotkey_vk is not None:
+                        key_state = self.user32.GetAsyncKeyState(self.hotkey_vk)
+                        is_pressed = (key_state & 0x8000) != 0
+
+                        if is_pressed and not self.hotkey_pressed_last:
+                            self.master.after(0, self.toggle_clicking)
+
+                        self.hotkey_pressed_last = is_pressed
+                    else:
+                        self.hotkey_pressed_last = False
+                except Exception as e:
+                    logger.error(f"Hotkey polling error: {e}")
+                time.sleep(0.02)
         except Exception as e:
             logger.error(f"Hotkey listener error: {e}")
+
+    def _native_click(self, click_type):
+        if click_type == "left":
+            flags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP
+        elif click_type == "right":
+            flags = MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_RIGHTUP
+        elif click_type == "middle":
+            flags = MOUSEEVENTF_MIDDLEDOWN | MOUSEEVENTF_MIDDLEUP
+        else:
+            raise ValueError(f"Unsupported click type: {click_type}")
+
+        if self.user32.mouse_event(flags, 0, 0, 0, 0) == 0:
+            error_code = ctypes.GetLastError()
+            raise OSError(f"mouse_event failed with error code {error_code}")
+
+    def _is_cursor_in_corner(self):
+        point = wintypes.POINT()
+        if not self.user32.GetCursorPos(ctypes.byref(point)):
+            return False
+
+        width = self.user32.GetSystemMetrics(0) - 1
+        height = self.user32.GetSystemMetrics(1) - 1
+        threshold = 1
+
+        return (
+            (point.x <= threshold and point.y <= threshold) or
+            (point.x >= width - threshold and point.y <= threshold) or
+            (point.x <= threshold and point.y >= height - threshold) or
+            (point.x >= width - threshold and point.y >= height - threshold)
+        )
+
+    def on_close(self):
+        try:
+            self.shutdown_event.set()
+            self.stop_clicking()
+        finally:
+            self.master.destroy()
 
 # Run app
 if __name__ == "__main__":
